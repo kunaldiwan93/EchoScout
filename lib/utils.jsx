@@ -1,5 +1,3 @@
-import { Play } from 'lucide-react';
-
 export function extractVideoId(urlOrId) {
   if (!urlOrId) return null;
   
@@ -35,52 +33,64 @@ export function extractVideoId(urlOrId) {
   return null;
 }
 
-export function parseTimestamps(text, onSeek) {
-  if (!text) return null;
-
-  const regex = /\[(\d{1,2}):(\d{2})\]|\[(\d{1,2}):(\d{2}):(\d{2})\]/g;
-  const elements = [];
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      elements.push(text.substring(lastIndex, match.index));
-    }
-
-    const fullMatch = match[0];
-    let totalSeconds = 0;
-
-    if (match[1] !== undefined && match[2] !== undefined) {
-      const mins = parseInt(match[1], 10);
-      const secs = parseInt(match[2], 10);
-      totalSeconds = mins * 60 + secs;
-    } else if (match[3] !== undefined && match[4] !== undefined && match[5] !== undefined) {
-      const hrs = parseInt(match[3], 10);
-      const mins = parseInt(match[4], 10);
-      const secs = parseInt(match[5], 10);
-      totalSeconds = hrs * 3600 + mins * 60 + secs;
-    }
-
-    const targetSeconds = totalSeconds;
-    elements.push(
-      <button
-        key={`timestamp-${match.index}`}
-        onClick={() => onSeek(targetSeconds)}
-        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 my-0.5 mx-1 text-xs font-semibold text-cyan-300 bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-400/40 rounded-full transition-all duration-200 shadow-sm hover:scale-105 active:scale-95 cursor-pointer group"
-        title={`Jump video to ${fullMatch}`}
-      >
-        <Play className="w-3 h-3 text-cyan-400 fill-cyan-400 group-hover:scale-110 transition-transform" />
-        <span>{fullMatch}</span>
-      </button>
-    );
-
-    lastIndex = regex.lastIndex;
+export function parseTimestampToSeconds(timeStr) {
+  if (!timeStr) return 0;
+  const clean = timeStr.replace(/[\[\]]/g, '').trim();
+  const parts = clean.split(':').map((p) => parseInt(p, 10));
+  if (parts.length === 2) {
+    return (parts[0] || 0) * 60 + (parts[1] || 0);
   }
-
-  if (lastIndex < text.length) {
-    elements.push(text.substring(lastIndex));
+  if (parts.length === 3) {
+    return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
   }
+  return 0;
+}
 
-  return elements;
+export function formatTimestamp(seconds) {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  if (hrs > 0) {
+    return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+  }
+  return `${pad(mins)}:${pad(secs)}`;
+}
+
+export function prepareAnswerMarkdown(text) {
+  if (!text) return '';
+  const parts = text.split(/(```[\s\S]*?```|`[^`\n]*?`)/g);
+  return parts
+    .map((part) => {
+      if (part.startsWith('`')) {
+        return part;
+      }
+      return part.replace(/\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g, (match, timeStr) => {
+        const seconds = parseTimestampToSeconds(timeStr);
+        return `[${timeStr}](echo-seek:${seconds})`;
+      });
+    })
+    .join('');
+}
+
+export function extractAllTimestamps(text) {
+  if (!text) return [];
+  const parts = text.split(/(```[\s\S]*?```|`[^`\n]*?`)/g);
+  const found = new Map();
+  for (const part of parts) {
+    if (part.startsWith('`')) continue;
+    const regex = /\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g;
+    let match;
+    while ((match = regex.exec(part)) !== null) {
+      const timeStr = match[1];
+      const seconds = parseTimestampToSeconds(timeStr);
+      if (!found.has(seconds)) {
+        found.set(seconds, timeStr);
+      }
+    }
+  }
+  return Array.from(found.entries())
+    .map(([seconds, label]) => ({ seconds, label }))
+    .sort((a, b) => a.seconds - b.seconds);
 }
